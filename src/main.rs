@@ -1,36 +1,30 @@
-use futures_util::{FutureExt, SinkExt, StreamExt};
-use warp::{Error, Filter};
-use warp::ws::{Message, WebSocket};
+use std::sync::{Arc};
+use dashmap::DashMap;
+use warp::{Filter};
+use memfast::{Core, ws_process};
 
 #[tokio::main]
 async fn main() {
+    let core: Core = Arc::new(DashMap::new());
+    let ws_core_clone = Arc::clone(&core);
+    let _http_core_clone = Arc::clone(&core);
+
+    // WebSocket Route
     let ws_route = warp::path("ws")
         .and(warp::ws())
-        .map(|ws: warp::ws::Ws| {
-            ws.on_upgrade(|websocket| ws_process(websocket))
+        .map(move |ws: warp::ws::Ws| {
+            let core = Arc::clone(&ws_core_clone);
+            ws.on_upgrade(|websocket| ws_process(websocket, core))
         });
 
+    // HTTP Route
     let http_route = warp::path("http")
-        .and(warp::get())
+        .and(warp::post())
         .map(|| "Hello!");
 
     let routes = ws_route.or(http_route);
 
+    println!("Starting Memfast!");
+
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
-}
-
-async fn ws_process(websocket: WebSocket) {
-    let (mut tx, mut rx) = websocket.split();
-
-    while let Some(item) = rx.next().await {
-        match item {
-            Ok(message) => {
-                tx.send(Message::text("Message received")).await.unwrap();
-            },
-            Err(error) => {
-                println!("{}", error);
-                break;
-            }
-        };
-    }
 }
