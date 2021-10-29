@@ -1,9 +1,9 @@
 # MemFast
 An In-Memory Key-Value Database for racers.
-> Still under development
 
-## Idea
-The idea is to spin up an API in warp which will act as a DB server. You can connect via WebSockets or can simply send HTTP requests if you are using MemFast in a Serverless Environment.
+## Installation
+Find the 64-bit Windows and Linux executables in the latest release.  
+The Linux executable is thrown in a Docker Image and is hosted on Docker Hub. [Docker Hub Image Link](https://hub.docker.com/r/expressgradient/memfast)
 
 ## Tech
 1. Rust Lang
