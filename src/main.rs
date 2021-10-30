@@ -18,14 +18,13 @@ struct Response {
 #[tokio::main]
 async fn main() {
     let core: Core = Arc::new(DashMap::new());
-    let ws_core_clone = Arc::clone(&core);
-    let http_core_clone = Arc::clone(&core);
+    let core_clone = Arc::clone(&core);
 
     // WebSocket Route
     let ws_route = warp::path("ws")
         .and(warp::ws())
         .map(move |ws: warp::ws::Ws| {
-            let core = Arc::clone(&ws_core_clone);
+            let core = Arc::clone(&core);
             ws.on_upgrade(|websocket| ws_process(websocket, core))
         });
 
@@ -35,7 +34,7 @@ async fn main() {
         .and(warp::body::content_length_limit(1024 * 20))
         .and(warp::body::json())
         .map(move |body: Body| {
-            let core = Arc::clone(&http_core_clone);
+            let core = Arc::clone(&core_clone);
             let process_value = http_process(core, body.query);
 
             let mut response = Response { data: process_value.clone(), error: "".to_string() };
