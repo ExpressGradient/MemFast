@@ -17,7 +17,7 @@ pub async fn ws_process(websocket: WebSocket, core: Core) {
                 let query: Vec<&str> = message.to_str().unwrap().splitn(5, " ").collect();
 
                 // Process the Query.
-                let process_value = core_process(core.clone(), query).await;
+                let process_value = core_process(core.clone(), query);
 
                 // Send the Value back to the Client.
                 tx.send(Message::text(process_value)).await.unwrap();
@@ -31,7 +31,14 @@ pub async fn ws_process(websocket: WebSocket, core: Core) {
     }
 }
 
-async fn core_process(core: Core, query: Vec<&str>) -> String {
+pub fn http_process(core: Core, query: String) -> String {
+    let query_vec: Vec<&str> = query.splitn(5,  " ").collect();
+
+    core_process(core.clone(), query_vec)
+}
+
+// Private Core Process Fn
+fn core_process(core: Core, query: Vec<&str>) -> String {
     match query[0] {
         "GET" => {
             if let Some(dash_value) = core.get(query[1]) {
