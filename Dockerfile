@@ -1,7 +1,9 @@
-FROM ubuntu:latest
+FROM rust:latest
 
-COPY /target/x86_64-unknown-linux-gnu/release/memfast .
+COPY . .
 
 EXPOSE 3030
 
-ENTRYPOINT ["./memfast"]
+RUN cargo build --release
+
+CMD ["cargo", "run", "--release"]
