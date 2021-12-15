@@ -7,7 +7,7 @@ The Linux executable is thrown in a Docker Image and is hosted on [Docker Hub](h
 
 ## Tech
 1. Rust Lang
-2. Warp.rs
+2. Axum
 
 ## Docs
 > Still under development

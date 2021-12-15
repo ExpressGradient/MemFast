@@ -1,73 +1,145 @@
 use dashmap::DashMap;
-use std::sync::{Arc};
-use futures_util::{SinkExt, StreamExt};
-use warp::ws::{Message, WebSocket};
+use reqwest;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::fs::{File, OpenOptions};
+use tokio::io::AsyncWriteExt;
+use tokio::time::sleep;
 
 pub type Core = Arc<DashMap<String, String>>;
 
-pub async fn ws_process(websocket: WebSocket, core: Core) {
-    // Split the WebSocket into tx and rx.
-    let (mut tx, mut rx) = websocket.split();
+// Core Process
+pub async fn core_process(query: String, core: Core) -> String {
+    let comps: Vec<&str> = query.splitn(10, " ").collect();
 
-    // Continuously loop for Items by calling next() on the rx Stream.
-    while let Some(item) = rx.next().await {
-        match item {
-            Ok(message) => {
-                // Collect the Query Args.
-                if let Ok(message_string) = message.to_str() {
-                    let query = message_string.splitn(5, " ").collect();
-
-                    // Process the Query.
-                    let process_value = core_process(core.clone(), query);
-
-                    // Send the Value back to the Client.
-                    tx.send(Message::text(process_value)).await.unwrap();
-                } else  {
-                    // If any error, print back to the console.
-                    eprintln!("Error occurred while reading the Query");
-                }
-            }
-            Err(error) => {
-                // If any error, print back to the console.
-                eprintln!("{}", error);
-                break;
-            }
-        };
+    match comps[0] {
+        "GET" => get_key(core, comps[1].to_string()).await,
+        "SET" => insert_key(core, comps[1].to_string(), comps[2].to_string()).await,
+        "DEL" => delete_key(core, comps[1].to_string()).await,
+        "EXISTS" => check_key(core, comps[1].to_string()).await,
+        "LEN" => map_len(core).await,
+        "ISEMPTY" => map_is_empty(core).await,
+        "CLEAR" => clear_map(core).await,
+        "DUMP" => dump_keys(core, comps[1]).await,
+        "NET" => create_net(comps).await,
+        "SETSYNC" => {
+            insert_sync(
+                comps[1].to_string(),
+                comps[2].to_string(),
+                comps[3].to_string(),
+                core,
+            )
+            .await
+        }
+        _ => String::from("Command not implemented yet!"),
     }
 }
 
-pub fn http_process(core: Core, query: String) -> String {
-    let query_vec: Vec<&str> = query.splitn(5,  " ").collect();
-
-    core_process(core.clone(), query_vec)
+// Get a Value using a Key
+async fn get_key(core: Core, key: String) -> String {
+    if let Some(value) = core.get(&*key) {
+        value.value().clone()
+    } else {
+        String::from("Nil")
+    }
 }
 
-// Private Core Process Fn
-fn core_process(core: Core, query: Vec<&str>) -> String {
-    match query[0] {
-        "GET" => {
-            if let Some(dash_value) = core.get(query[1]) {
-                dash_value.value().clone()
-            } else {
-                String::from("Nil")
-            }
-        }
-        "SET" => {
-            if let Some(..) = core.insert(String::from(query[1]), String::from(query[2])) {
-                String::from("Similar key exists")
-            } else {
-                String::from("Inserted")
-            }
-        }
-        "DEL" => {
-            if let Some(..) = core.remove(query[1]) {
-                String::from("Removed")
-            } else {
-                String::from("Failed to remove!")
-            }
-        }
-        &_ => {
-            String::from("Command not implemented!")
+// Insert or Update a Value
+async fn insert_key(core: Core, key: String, value: String) -> String {
+    if let Some(old_value) = core.insert(key, value) {
+        old_value
+    } else {
+        String::from("Inserted!")
+    }
+}
+
+// Delete a Key
+async fn delete_key(core: Core, key: String) -> String {
+    core.remove(&*key);
+    String::from("Deleted!")
+}
+
+// Check existence of a Key
+async fn check_key(core: Core, key: String) -> String {
+    String::from(format!("{}", core.contains_key(&*key)))
+}
+
+// Get Length of the HashMap
+async fn map_len(core: Core) -> String {
+    String::from(format!("{}", core.len()))
+}
+
+// Check if the HashMap is Empty
+async fn map_is_empty(core: Core) -> String {
+    String::from(format!("{}", core.is_empty()))
+}
+
+// Clear the HashMap
+async fn clear_map(core: Core) -> String {
+    core.clear();
+    String::from("Cleared!")
+}
+
+// Dump all Keys into a CSV file
+async fn dump_keys(core: Core, path: &str) -> String {
+    let mut file = File::create(path).await.unwrap();
+
+    file.write_all("key, value\n".as_bytes()).await.unwrap();
+
+    for ref_multi in core.iter() {
+        let mut file = OpenOptions::new().append(true).open(path).await.unwrap();
+
+        file.write_all(format!("{},{}\n", ref_multi.key(), ref_multi.value()).as_bytes())
+            .await
+            .unwrap();
+    }
+
+    String::from("Dumped!")
+}
+
+// Create a Network of Nodes
+async fn create_net(comps: Vec<&str>) -> String {
+    let name = comps[1].to_string();
+    let num_nodes = comps[2].parse().unwrap();
+
+    let mut ips = String::new();
+
+    for i in 0..num_nodes {
+        ips.push_str(comps[i + 3]);
+        ips.push_str("_");
+    }
+    ips.pop();
+
+    let mut map: HashMap<String, String> = HashMap::new();
+    map.insert(String::from("query"), format!("SET {} {}", name, ips));
+
+    let client = reqwest::Client::new();
+
+    for i in 0..num_nodes {
+        client.post(comps[i + 3]).json(&map).send().await.unwrap();
+    }
+
+    sleep(Duration::from_secs(2)).await;
+
+    String::from("Created!")
+}
+
+// Insert keys to be synced across nodes
+async fn insert_sync(net: String, key: String, value: String, core: Core) -> String {
+    if let Some(nodes) = core.get(&*net) {
+        let ips: Vec<&str> = nodes.value().split("_").collect();
+
+        for ip in ips {
+            let mut map: HashMap<String, String> = HashMap::new();
+            map.insert(String::from("query"), format!("SET {} {}", key, value));
+
+            let client = reqwest::Client::new();
+            client.post(ip).json(&map).send().await.unwrap();
         }
     }
+
+    sleep(Duration::from_secs(2)).await;
+
+    String::from("Synced!")
 }
