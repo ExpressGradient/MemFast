@@ -1,57 +1,68 @@
-use std::sync::{Arc};
+use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Extension,
+    },
+    response::IntoResponse,
+    routing::get,
+    AddExtensionLayer, Json, Router,
+};
 use dashmap::DashMap;
-use warp::{Filter};
-use memfast::{Core, http_process, ws_process};
-use serde::{Serialize, Deserialize};
-
-#[derive(Deserialize, Serialize)]
-struct Body {
-    query: String,
-}
-
-#[derive(Serialize)]
-struct Response {
-    data: String,
-    error: String,
-}
+use futures::{sink::SinkExt, stream::StreamExt};
+use memfast::{core_process, Core};
+use serde::Deserialize;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
-    let core: Core = Arc::new(DashMap::new());
-    let core_clone = Arc::clone(&core);
+    // Core App State
+    let dashmap: DashMap<String, String> = DashMap::new();
+    let core = Arc::new(dashmap);
 
-    // WebSocket Route
-    let ws_route = warp::path("ws")
-        .and(warp::ws())
-        .map(move |ws: warp::ws::Ws| {
-            let core = Arc::clone(&core);
-            ws.on_upgrade(|websocket| ws_process(websocket, core))
-        });
+    // Core App
+    let app = Router::new()
+        .route("/", get(ws_handler).post(http_handler))
+        .layer(AddExtensionLayer::new(core));
 
-    // HTTP Route
-    let http_route = warp::path("http")
-        .and(warp::post())
-        .and(warp::body::content_length_limit(1024 * 20))
-        .and(warp::body::json())
-        .map(move |body: Body| {
-            let core = Arc::clone(&core_clone);
-            let process_value = http_process(core, body.query);
+    println!("Starting MemFast!!!");
+    println!("WebSockets at ws://localhost:3030/");
+    println!("Serverless at http://localhost:3030/");
 
-            let mut response = Response { data: process_value.clone(), error: "".to_string() };
+    // Start App Server
+    axum::Server::bind(&"0.0.0.0:3030".parse().unwrap())
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
 
-            if process_value == "Command not implemented!" {
-                response.data = String::from("");
-                response.error = process_value;
-            }
+async fn ws_handler(ws: WebSocketUpgrade, Extension(state): Extension<Core>) -> impl IntoResponse {
+    ws.on_upgrade(|socket| websocket_handle(socket, state))
+}
 
-            warp::reply::json(&response)
-        });
+async fn websocket_handle(socket: WebSocket, state: Core) {
+    let (mut sender, mut receiver) = socket.split();
+    let state_clone = Arc::clone(&state);
 
-    let routes = ws_route.or(http_route);
+    while let Some(Ok(message)) = receiver.next().await {
+        if let Message::Text(query) = message {
+            let response = core_process(query, state_clone.clone()).await;
+            sender
+                .send(Message::Text(String::from(response)))
+                .await
+                .unwrap();
+        }
+    }
+}
 
-    println!("Starting Memfast!");
-    println!("Serving WebSockets at ws://localhost:3030/ws");
-    println!("Serving HTTP at http://localhost:3030/http");
+#[derive(Deserialize)]
+struct JSONPayload {
+    query: String,
+}
 
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+async fn http_handler(
+    Json(payload): Json<JSONPayload>,
+    Extension(state): Extension<Core>,
+) -> impl IntoResponse {
+    let response = core_process(payload.query, state).await;
+    response.into_response()
 }
