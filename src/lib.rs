@@ -120,7 +120,7 @@ async fn create_net(comps: Vec<&str>) -> String {
         client.post(comps[i + 3]).json(&map).send().await.unwrap();
     }
 
-    sleep(Duration::from_secs(2)).await;
+    sleep(Duration::from_millis(10)).await;
 
     String::from("Created!")
 }
@@ -139,7 +139,7 @@ async fn insert_sync(net: String, key: String, value: String, core: Core) -> Str
         }
     }
 
-    sleep(Duration::from_secs(2)).await;
+    sleep(Duration::from_millis(10)).await;
 
     String::from("Synced!")
 }
