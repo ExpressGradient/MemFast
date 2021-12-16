@@ -11,6 +11,7 @@ use dashmap::DashMap;
 use futures::{sink::SinkExt, stream::StreamExt};
 use memfast::{core_process, Core};
 use serde::Deserialize;
+use std::env;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -24,12 +25,14 @@ async fn main() {
         .route("/", get(ws_handler).post(http_handler))
         .layer(AddExtensionLayer::new(core));
 
+    let port: Vec<String> = env::args().collect();
+
     println!("Starting MemFast!!!");
-    println!("WebSockets at ws://localhost:3030/");
-    println!("Serverless at http://localhost:3030/");
+    println!("WebSockets at ws://localhost:{}/", port[1]);
+    println!("Serverless at http://localhost:{}/", port[1]);
 
     // Start App Server
-    axum::Server::bind(&"0.0.0.0:3030".parse().unwrap())
+    axum::Server::bind(&format!("0.0.0.0:{}", port[1]).parse().unwrap())
         .serve(app.into_make_service())
         .await
         .unwrap();
