@@ -10,4 +10,4 @@ The Linux executable is thrown in a Docker Image and is hosted on [Docker Hub](h
 2. Axum
 
 ## Docs
-> Still under development
+https://memfast-docs.vercel.app
